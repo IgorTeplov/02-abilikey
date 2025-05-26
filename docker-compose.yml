@@ -1,0 +1,28 @@
+version: '3.3'
+services:
+
+  postgres2:
+    image: postgres:15
+    container_name: postgres2
+    env_file:
+      - .env
+    volumes:
+      - ./pg_data:/var/lib/postgresql/data
+    restart: always
+    command: postgres -c 'max_connections=1000'
+
+  abilikey:
+    image: ubuntu:22.04
+    container_name: abilikey
+    build: .
+    depends_on:
+      - postgres2
+    volumes:
+      - ./app:/root/app
+    ports:
+      - "8000:8000"
+    working_dir: /root/app
+    env_file:
+      - .env
+    restart: always
+    command: ["/bin/bash", "/root/app/start.sh"]
