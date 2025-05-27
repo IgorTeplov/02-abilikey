@@ -1,0 +1,10 @@
+__pycache__/
+app/folders/cache/
+app/folders/log/
+app/folders/pipeline/
+app/folders/requests/
+.env
+*.json
+*.txt
+!requirements.txt
+pg_data
