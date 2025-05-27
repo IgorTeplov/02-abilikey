@@ -5,6 +5,8 @@ from libs.makepipeline import Step, Const, OUT
 from datetime import datetime
 from libs.utils import chunks
 from libs.logs import error_logger, execution_logger
+import psutil
+from os import getpid
 import re
 
 from sys import argv
@@ -44,6 +46,9 @@ FIELDS = [
     "Average Views to calculate Viral Videos", "Follower",
     "Total Account Views (Started: 01.08.2024)"
 ]
+
+pid = getpid()
+proc = psutil.Process(pid)
 
 if __name__ == '__main__':
 
@@ -264,6 +269,8 @@ if __name__ == '__main__':
         if self.current_loop:
             OUT.print(f"Active {self.current_loop['active']}, {self.current_loop['finished']}/{self.current_loop['max']}")
         OUT.print(f"{datetime.now().strftime('%H:%M:%S')} - {elapsed}")
+        mem = round(proc.memory_info().rss / 1024 ** 2, 3)
+        OUT.print(f"Memory Used: {pid} - {mem} MB")
 
     pipe.set_time_handler(time_handler)
 

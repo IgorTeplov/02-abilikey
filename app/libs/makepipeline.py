@@ -87,8 +87,18 @@ class Step:
         return self.__str__()
 
 
+class Context:
+    def __init__(self, id_):
+        self.id_ = id_
+
+    def __getitem__(self, key):
+        data_src = PIPE_DIR / f'{str(self.id_)}/step_{key}.json'
+        if data_src.is_file():
+            return loads(data_src.read_text())
+
+
 class Pipeline:
-    def __init__(self, context: 'dict|None' = None):
+    def __init__(self, context: 'Context|None' = None):
         self.id = EXEC_ID
         self.name = None
         self._dir = PIPE_DIR / str(self.id)
@@ -97,7 +107,7 @@ class Pipeline:
         self.context = context
         self.state = {}
         if context is None:
-            self.context = {}
+            self.context = Context()
         self.exec = None
         self.exec_steps = []
 
@@ -188,7 +198,6 @@ class Pipeline:
                 step_out = loads((PIPE_DIR / str(self.exec) / f'step_{i+1}.json').read_text())["out"]
 
             context['out'] = step_out
-            self.context[i + 1] = context
             (self._dir / f'step_{i+1}.json').write_text(
                 dumps(context, indent=INDENT)
             )

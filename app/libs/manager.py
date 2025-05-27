@@ -38,6 +38,7 @@ class Manager:
         print(f"ID: {id_}")
         finished = "YES" if exec_['finished'] else "NO"
         print(f"NAME: {exec_['name']}, FINISHED: {finished}")
+        print(f"STAGE: {exec_['last_step']}")
         print()
 
     def get_execs(self, show=False):
@@ -89,7 +90,7 @@ class Manager:
     def show_active(self):
         execs = self.get_execs()
         records = list(execs.values())
-        records = filter(lambda obj: obj['finished'], records)
+        records = filter(lambda obj: not obj['finished'], records)
         for exec_ in records:
             id_ = exec_['id']
             self.print_exec(id_, exec_)

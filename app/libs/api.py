@@ -421,9 +421,11 @@ class Loader():
             async with session.request("get", url) as response:
                 data = await response.read()
                 print(f"End download {url}")
-                with open(f"test/{name}.mp4", "bw") as f:
+                with open(f"{name}.mp4", "bw") as f:
                     f.write(data)
-                return sha256(data).hexdigest()
+                hash_ = sha256(data).hexdigest()
+                del data
+                return hash_
 
     @rate_limit(0.2, "loader", asyncio.Lock(), _request_counter)
     async def load_hash(self, url, r=0):
@@ -436,7 +438,9 @@ class Loader():
                     data = await response.read()
                     print(f"End download {url}")
                     self.total_bytes += len(data)
-                    return sha256(data).hexdigest()
+                    hash_ = sha256(data).hexdigest()
+                    del data
+                    return hash_
         except Exception:
             request_logger.error(f"Download {url} filed!")
             request_logger.error(f"{format_exc()}")
