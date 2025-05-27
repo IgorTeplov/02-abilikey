@@ -47,7 +47,7 @@ class Manager:
             data = loads((exec_ / "status.json").read_text())
             data["start"] = datetime.fromisoformat(data["start"])
             execs.append(data)
-        execs.sort(key=lambda item: -item['start'])
+        execs.sort(key=lambda item: item['start'])
         execs = {item["id"]: item for item in execs}
 
         if show:
