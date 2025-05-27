@@ -7,16 +7,12 @@ from pathlib import Path
 from uuid import uuid4
 import time
 from anyio import open_file
-from libs.logs import EXEC_ID, request_logger, BASE_DIR
+from libs.logs import EXEC_ID, request_logger
 from sys import stdout
-from requests import post
 from hashlib import sha256
 from traceback import format_exc
+from libs.dirs import REQUEST_DIR
 
-
-REQUEST_DIR = BASE_DIR / 'requests'
-if not REQUEST_DIR.is_dir():
-    REQUEST_DIR.mkdir()
 
 REQUEST_DIR = REQUEST_DIR / str(EXEC_ID)
 if not REQUEST_DIR.is_dir():

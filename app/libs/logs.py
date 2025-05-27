@@ -1,28 +1,16 @@
 import logging
 from uuid import uuid4
-from pathlib import Path
+from libs.dirs import EXECUTION_LOG_DIR, REQUEST_LOG_DIR, LOG_DIR
 
-BASE_DIR = Path('./folders/')
 
 EXEC_ID = uuid4()
 LOG_FORMAT = "[%(asctime)s] [%(levelname)s] [%(module)s|%(process)s] - %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 formatter = logging.Formatter(LOG_FORMAT, datefmt=DATE_FORMAT)
 
-LOG_DIR = BASE_DIR / 'log'
-if not LOG_DIR.is_dir():
-    LOG_DIR.mkdir()
 
-EXECUTION_LOG_DIR = LOG_DIR / "executions"
-if not EXECUTION_LOG_DIR.is_dir():
-    EXECUTION_LOG_DIR.mkdir()
-
-REQUEST_LOG_DIR = LOG_DIR / "requests"
-if not REQUEST_LOG_DIR.is_dir():
-    REQUEST_LOG_DIR.mkdir()
-
-EXECUTION_LOG_DIR /= str(EXEC_ID)
-REQUEST_LOG_DIR /= str(EXEC_ID)
+EXECUTION_LOG_DIR = EXECUTION_LOG_DIR / str(EXEC_ID)
+REQUEST_LOG_DIR = REQUEST_LOG_DIR / str(EXEC_ID)
 
 if not EXECUTION_LOG_DIR.is_dir():
     EXECUTION_LOG_DIR.mkdir()

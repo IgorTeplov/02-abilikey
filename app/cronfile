@@ -1,1 +1,2 @@
 0 8 * * * /bin/bash /root/app/run.tiktok.sh
+0 22 * * * /bin/bash /root/app/run.clear.sh

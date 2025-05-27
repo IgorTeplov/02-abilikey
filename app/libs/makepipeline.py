@@ -1,36 +1,13 @@
 import asyncio
-from hashlib import sha256
-from pathlib import Path
 from json import dumps, loads
 from datetime import datetime
-from libs.logs import logger, execution_logger, error_logger, EXEC_ID, BASE_DIR
+from libs.logs import logger, execution_logger, error_logger, EXEC_ID
 from traceback import format_exc
 from libs.stack import PrintedStack
+from libs.dirs import PIPE_DIR
 
 INDENT = 4
 OUT = PrintedStack(15, True)
-
-CACHE_DIR = BASE_DIR / 'cache'
-if not CACHE_DIR.is_dir():
-    CACHE_DIR.mkdir()
-
-PIPE_DIR = BASE_DIR / 'pipeline'
-if not PIPE_DIR.is_dir():
-    PIPE_DIR.mkdir()
-
-
-def local_cache(coro):
-    async def wrapper(*args, **kwargs):
-        hash_ = sha256(bytes(f'{coro.__name__}{args}{kwargs}'.encode())).hexdigest()
-        path = CACHE_DIR / hash_
-        if path.is_file():
-            return loads(path.read_text())['out']
-        answer = await coro(*args, **kwargs)
-        if not path.is_file():
-            path.write_text(dumps({'out': answer}, indent=INDENT))
-        return answer
-
-    return wrapper
 
 
 class Step:
@@ -258,7 +235,6 @@ class Const:
 
 
 if __name__ == '__main__':
-    @local_cache
     async def _step1(data, context, const, pipe, iteration, step_number):
         # Get Users
         return [
@@ -267,7 +243,6 @@ if __name__ == '__main__':
             {'id': 3, 'user': 'C', 'likes': 132}
         ]
 
-    @local_cache
     async def _step2(data, context, const, pipe, iteration, step_number):
         # filter user with likes > 50
         out = []
@@ -276,7 +251,6 @@ if __name__ == '__main__':
                 out.append(item)
         return out
 
-    @local_cache
     async def _alt_step2(data, context, const, pipe, iteration, step_number):
         # filter user with likes > 50
         # alt version for loops and aloops
