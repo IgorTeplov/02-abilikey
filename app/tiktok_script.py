@@ -65,10 +65,11 @@ if __name__ == '__main__':
                 const.BASE, const.ACCOUNTS, const.USER_COUNT,
                 const.ACCOUNTS_VIEW, FIELDS
             )
-        data = await airtabel.search_until(
-            const.BASE, const.ACCOUNTS, None,
-            const.ACCOUNTS_VIEW, FIELDS
-        )
+        else:
+            data = await airtabel.search_until(
+                const.BASE, const.ACCOUNTS, None,
+                const.ACCOUNTS_VIEW, FIELDS
+            )
         execution_logger.info(f"GET {len(data['records'])} models")
         return data
 

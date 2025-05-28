@@ -107,7 +107,7 @@ class Pipeline:
         self.context = context
         self.state = {}
         if context is None:
-            self.context = Context()
+            self.context = Context(self.id)
         self.exec = None
         self.exec_steps = []
 
