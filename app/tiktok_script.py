@@ -130,6 +130,11 @@ if __name__ == '__main__':
                     )
                     if "error" in answer:
                         error_logger.error(f"Bad user update: {data}, error: {answer}")
+            if _data.get('ins_id', None) is None:
+                answer = await airtabel.update(
+                    const.BASE, const.ACCOUNTS, data['id'],
+                    {'Automatic - Linked Instagram Accounts': []}
+                )
 
             return data
         else:
@@ -272,6 +277,7 @@ if __name__ == '__main__':
         OUT.print(f"{datetime.now().strftime('%H:%M:%S')} - {elapsed}")
         mem = round(proc.memory_info().rss / 1024 ** 2, 3)
         OUT.print(f"Memory Used: {pid} - {mem} MB")
+        self.write_status(self.get_status())
 
     pipe.set_time_handler(time_handler)
 

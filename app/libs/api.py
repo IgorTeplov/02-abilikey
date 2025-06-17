@@ -2,7 +2,7 @@ import aiohttp
 import asyncio
 from asyncio import Lock
 from libs.utils import rate_limit, repeat_when_429_or_5xx
-from json import dump, load
+from json import dump, load, loads, dumps
 from pathlib import Path
 from uuid import uuid4
 import time
@@ -12,6 +12,8 @@ from sys import stdout
 from hashlib import sha256
 from traceback import format_exc
 from libs.dirs import REQUEST_DIR
+import re
+from urllib.parse import unquote, urlparse
 
 
 REQUEST_DIR = REQUEST_DIR / str(EXEC_ID)
@@ -363,6 +365,41 @@ class AirtableApi(BaseApi):
         return answer[0]
 
 
+class RapidTwitterApi(BaseApi):
+    @property
+    def headers(self):
+        return self.token
+
+    _request = rate_limit(0.1, "rapid", asyncio.Lock(), _request_counter)(BaseApi._request)
+
+    async def followingids(self, username, count=50):
+        data = {"username": username, 'count': count}
+        answer = await self._request(
+            "get", "FollowingIds", params=data
+        )
+        if answer[1] == 404 or answer[1] == 403:
+            return None
+        return answer[0]
+
+    async def users(self, username):
+        data = {"usernames": username}
+        answer = await self._request(
+            "get", "Users", params=data
+        )
+        if answer[1] == 404 or answer[1] == 403:
+            return None
+        return answer[0]
+
+    async def userbyrestid(self, id_):
+        data = {"id": id_}
+        answer = await self._request(
+            "get", "UserByRestId", params=data
+        )
+        if answer[1] == 404 or answer[1] == 403:
+            return None
+        return answer[0]
+
+
 class RapidTikTokApi(BaseApi):
 
     @property
@@ -427,6 +464,24 @@ class Loader():
                 del data
                 return hash_
 
+    @rate_limit(0.1, "simple_get", asyncio.Lock(), _request_counter)
+    async def simple_get(self, url, id_=None):
+        _id = uuid4()
+        _request_counter['started'] += 1
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.request("get", url) as response:
+                    if response.status == 200:
+                        text = await response.text()
+                        # async with await open_file(REQUEST_DIR / f"{_id}.req", "w") as file:
+                        #     await file.write(f'{url} - {id_}\n{text}')
+                        _request_counter['ended'] += 1
+                        return text
+        except Exception:
+            request_logger.error(f'{url} {id_}\n{format_exc()}')
+        _request_counter['ended'] += 1
+        return None
+
     @rate_limit(0.2, "loader", asyncio.Lock(), _request_counter)
     async def load_hash(self, url, r=0):
         print(f"Start download {url}")
@@ -446,3 +501,199 @@ class Loader():
             request_logger.error(f"{format_exc()}")
             await asyncio.sleep(5)
             await self.load_hash(url, r + 1)
+
+
+class LinkAnalizer:
+
+    insecure_file_types = [
+        '.js',
+        '.pdf',
+        '.mp3',
+        '.mp4',
+        '.mkv',
+        '.jpeg',
+        '.png',
+        '.jpg',
+        '.svg',
+        '.css',
+        '.less',
+        '.sass',
+        '.ttf',
+        '.otf',
+        '.woff',
+        '.woff2',
+        '.eot'
+    ]
+
+    bad_parts = [
+        'google.', 'yahoo.', 'yandex.', 'spotify.', 'cloudflare.', 'gstatic', 'static', 'media', 'cdn.',
+        'wp-content', 'cache', 'minify', 'share', 'img', 'www.w3.org', 'discord.', 'facebook.', 'twitter.'
+    ]
+
+    # a = параметр совпадения по поискам (5% попаданий из всей выборки)
+    # b = минимальная выборка для принятия решения
+    def __init__(self, state, loader, instagraapi, a=5, b=1000):
+        self.state_path = Path(f'./{state}')
+        self.state = self.load_state()
+        self.loader = loader
+        self.a = a
+        self.b = b
+        self.instagraapi = instagraapi
+
+        self.rate = self.get_rate()
+
+        self.filter_rules = self.get_rules()
+        self.cache = {}
+        self.hit_in_cache = 0
+        self.detected_links = 0
+        self.total_processed = 0
+
+    def get_rules(self):
+        def to_short_or_long(link):
+            parts = link.replace('https://', '').replace('http://', '').split('/')
+            if '' in parts:
+                parts.remove('')
+            return len(parts) == 1 or len(parts) > 3
+        def insecure_types(link):
+            if '&quot' in link:
+                link = link.split('&quot')[0]
+            parts = link.replace('https://', '').replace('http://', '').split('?')[0]
+            parts = parts.split('/')
+            return any(list(map(lambda f: f in parts[-1], self.insecure_file_types)))
+        def bad_parts(link):
+            if '&quot' in link:
+                link = link.split('&quot')[0]
+            return any(list(map(lambda f: f in link, self.bad_parts)))
+
+        return [to_short_or_long, insecure_types, bad_parts]
+
+    def sort_links(self, links):
+        links = list(map(lambda link: [link, self.get_domain(link)], links))
+        links.sort(key=lambda link: self.rate.index(link[1]) if link[1] in self.rate else 1000000)
+
+        for link in links:
+            if any(list(map(lambda f: f(link[0]), self.filter_rules))):
+                request_logger.info(f"skip this link: {link}")
+
+        return [link[0] for link in links if not any(list(map(lambda f: f(link[0]), self.filter_rules)))]
+
+    def get_rate(self):
+        rate = [{'domain': k, **v} for k, v in self.state.items() if k != '_patterns']
+        rate.sort(key=lambda x: x.get('%', 0))
+        return list(map(lambda x: x['domain'], rate))
+
+    def load_state(self):
+        try:
+            return loads(self.state_path.read_text())
+        except Exception:
+            return {
+                '_patterns': [
+                    'https?:\/\/(?:www\.)?onlyfans\.com\/[a-zA-Z0-9_\-\.]+',
+                    'https?:\/\/(?:www\.)?[a-zA-Z0-9\-]+\.[a-zA-Z]+(?:\/[a-zA-Z0-9\/\.\?&=+*\-#$%\^\(\)\[\]\{\}\+-:;,!]*)?'
+                    # 'https?:\/\/(?:www\.)?[a-zA-Z0-9\-]+\.[a-zA-Z]+(?:\/[^\s]*)?'
+                ]
+            }
+
+    def get_domain(self, link):
+        return link.replace(
+            'https://', ''
+        ).replace('http://', '').split('/')[0]
+
+    def check(self, link):
+        domain = self.get_domain(link)
+        if domain not in self.state:
+            self.state[domain] = {
+                'verified': True,
+                'success': 0,
+                '%': 0,
+                'all': 0
+            }
+            return True, domain
+        verified = self.state[domain]['verified']
+        has_success = self.state[domain]['all'] < self.b or self.state[domain]['success'] / (self.state[domain]['all'] / 100) > self.a
+        return (verified and has_success) or self.state[domain].get('ignore_all_rules', False), domain
+
+    async def get_data(self, link):
+        data = await self.loader.simple_get(link)
+        return data
+
+    def find(self, data):
+        of = False
+        answer = re.findall(self.state['_patterns'][0], data, flags=re.IGNORECASE)
+        if not answer:
+            answer = re.findall(self.state['_patterns'][1], data, flags=re.IGNORECASE)
+        else:
+            of = True
+        return answer, of
+
+    async def analize(self, link, depth=0):
+        if depth == 0:
+            self.total_processed += 1
+        if link in self.cache:
+            self.hit_in_cache += 1
+            return self.cache[link]
+        request_logger.info(f"scan this link: {link}")
+        if depth == 3:
+            if link not in self.cache:
+                self.cache[link] = ([], False)
+            return [], False
+        check, domain = self.check(link)
+        if check:
+            self.state[domain]['all'] += 1
+            if domain == 'instagram.com':
+                try:
+                    username = link.split('?')[0].split('/')[-1]
+                    data = (await self.instagraapi.info(username))
+                    url = data.get('answer', {}).get('data', {}).get('external_url', '')
+                    if url != '':
+                        answer = await self.analize([url], depth + 1)
+                        if link not in self.cache:
+                            self.cache[link] = answer
+                        if answer[1]:
+                            self.detected_links += 1
+                        return answer
+                    if link not in self.cache:
+                        self.cache[link] = ([], False)
+                    return [], False
+                except Exception:
+                    if link not in self.cache:
+                        self.cache[link] = ([], False)
+                    return [], False
+            data = await self.get_data(link)
+            if not data:
+                if link not in self.cache:
+                    self.cache[link] = ([], False)
+                return [], False
+            answer, of = self.find(unquote(data))
+            if of:
+                self.state[domain]['success'] += 1
+                if link not in self.cache:
+                    self.detected_links += 1
+                    self.cache[link] = (answer, True)
+                return answer, True
+
+            for dlink in self.sort_links(answer):
+                request_logger.info(f"scan this link: {dlink}")
+                scheck, sdomain = self.check(dlink)
+                if scheck:
+                    answer, isof = await self.analize(dlink, depth + 1)
+                    if depth == 0 and isof:
+                        self.state[domain]['success'] += 1
+                    if isof:
+                        self.detected_links += 1
+                        if link not in self.cache:
+                            self.cache[link] = (answer, True)
+                        return answer, True
+        if link not in self.cache:
+            self.cache[link] = ([], False)
+        return [], False
+
+    def update_state(self):
+        for domain in self.state.keys():
+            if domain != '_patterns':
+                d = self.state[domain]['all'] / 100
+                if d == 0:
+                    self.state[domain]['%'] = 0
+                else:
+                    self.state[domain]['%'] = self.state[domain]['success'] / d
+        self.state_path.write_text(dumps(self.state, indent=4))

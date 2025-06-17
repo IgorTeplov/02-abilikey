@@ -104,7 +104,7 @@ if __name__ == '__main__':
         username = data['fields']['Username']
         answer = await rapid.get_n_page(username, const.URL_MODEL, const.PAGES)
         models = answer.get('answer', [])
-        models.sort(key=lambda item: -item['taken_at'])
+        models.sort(key=lambda item: -item.get('taken_at', 0))
         return {'models': models, 'user': data, 'status': answer.get('status')}
 
     async def _step4(data: dict, context, const, pipe, iteration, step_number) -> list:
@@ -311,6 +311,7 @@ if __name__ == '__main__':
     pipe <= step9
     pipe <= step10
     pipe <= step11
+    pipe <= step12
 
     async def time_handler(self, elapsed):
         started = _request_counter["started"]
@@ -320,6 +321,7 @@ if __name__ == '__main__':
         if self.current_loop:
             OUT.print(f"Active {self.current_loop['active']}, {self.current_loop['finished']}/{self.current_loop['max']}")
         OUT.print(f"{datetime.now().strftime('%H:%M:%S')} - {elapsed}")
+        self.write_status(self.get_status())
 
     pipe.set_time_handler(time_handler)
 

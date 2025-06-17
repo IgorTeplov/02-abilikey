@@ -5,6 +5,8 @@ from libs.logs import logger, execution_logger, error_logger, EXEC_ID
 from traceback import format_exc
 from libs.stack import PrintedStack
 from libs.dirs import PIPE_DIR
+import atexit
+import signal
 
 INDENT = 4
 OUT = PrintedStack(15, True)
@@ -117,6 +119,20 @@ class Pipeline:
 
         self.global_start = None
         self.elapsed = None
+        self.last_status = None
+        signal.signal(signal.SIGINT, self.exit)
+        atexit.register(self.atexit)
+
+    def exit(self, signum, frame):
+        self.last_status = 'killed'
+        exit(1)
+
+    def atexit(self):
+        if self.last_status is None:
+            self.last_status = 'finished'
+        if self.time_run:
+            self.time_run = False
+        self.write_status(self.get_status(self.last_status))
 
     def write_status(self, status):
         (self._dir / "status.json").write_text(dumps(status, indent=4))
@@ -143,75 +159,84 @@ class Pipeline:
         while self.time_run:
             if self.time_handler:
                 elapsed = datetime.now() - start
-                await self.time_handler(self, elapsed)
+                try:
+                    await self.time_handler(self, elapsed)
+                except Exception:
+                    error_logger.error(f'{format_exc()}')
+                    break
             await asyncio.sleep(1)
 
     async def run(self, name="Undefined Process"):
-        step_out = None
-        self.name = name
-        OUT.print(f'Start Execution: {name} with id: {self.id}')
-        logger.info(f'Start Execution: {name} with id: {self.id}')
-        self.global_start = datetime.now()
-        self.write_status(self.get_status())
+        try:
+            step_out = None
+            self.name = name
+            OUT.print(f'Start Execution: {name} with id: {self.id}')
+            logger.info(f'Start Execution: {name} with id: {self.id}')
+            self.global_start = datetime.now()
+            self.write_status(self.get_status())
+            for i, step in enumerate(self.steps):
+                self.write_status(self.get_status(f'{step.name} [{i+1}]'))
+                OUT.print(f'Start Step {i} {step.name}')
+                logger.info(f'Start Step {i} {step.name}')
+                local_start = datetime.now()
+                context = {'in': step_out, 'out': None}
+                if self.exec is None or f"step_{i+1}" not in self.exec_steps:
+                    if step.isloop is False:
+                        step_out = await step.run(data=step_out, context=self.context, pipe=self.state, step_number=i)
+                    elif step.isloop == 'loop' and isinstance(step.get_map(step_out), (list, tuple)):
+                        _step_out = []
+                        self.current_loop = {
+                            'name': step.name,
+                            'max': len(step.get_map(step_out)),
+                            'active': 0,
+                            'finished': 0
+                        }
+                        for j, item in enumerate(step.get_map(step_out)):
+                            data = await step.run(data=item, context=self.context, pipe=self.state, iteration=j, step_number=i, root_pipe=self)
+                            if data is not None:
+                                _step_out.append(data)
+                            execution_logger.info(f'End {j} iteration')
+                        step_out = _step_out
+                        self.current_loop = None
+                    elif step.isloop == 'aloop' and isinstance(step.get_map(step_out), (list, tuple)):
+                        tasks = []
+                        self.current_loop = {
+                            'name': step.name,
+                            'max': len(step.get_map(step_out)),
+                            'active': 0,
+                            'finished': 0
+                        }
+                        for j, item in enumerate(step.get_map(step_out)):
+                            tasks.append(step.run(data=item, context=self.context, pipe=self.state, iteration=j, step_number=i, root_pipe=self))
+                        step_out = await asyncio.gather(*tasks)
+                        step_out = [item for item in step_out if item is not None]
+                        self.current_loop = None
+                    elif step.isloop in ['loop', 'aloop'] and not isinstance(step.get_map(step_out), (list, tuple)):
+                        error = f'Bad input data: {step_out}'
+                        error_logger.error(error)
+                        raise Exception(error)
+                else:
+                    OUT.print(f"Load out from exec {self.exec}")
+                    step_out = loads((PIPE_DIR / str(self.exec) / f'step_{i+1}.json').read_text())["out"]
 
-        for i, step in enumerate(self.steps):
-            self.write_status(self.get_status(f'{step.name}[{i}]'))
-            OUT.print(f'Start Step {i} {step.name}')
-            logger.info(f'Start Step {i} {step.name}')
-            local_start = datetime.now()
-            context = {'in': step_out, 'out': None}
-            if self.exec is None or f"step_{i+1}" not in self.exec_steps:
-                if step.isloop is False:
-                    step_out = await step.run(data=step_out, context=self.context, pipe=self.state, step_number=i)
-                elif step.isloop == 'loop' and isinstance(step.get_map(step_out), (list, tuple)):
-                    _step_out = []
-                    self.current_loop = {
-                        'max': len(step.get_map(step_out)),
-                        'active': 0,
-                        'finished': 0
-                    }
-                    for j, item in enumerate(step.get_map(step_out)):
-                        data = await step.run(data=item, context=self.context, pipe=self.state, iteration=j, step_number=i, root_pipe=self)
-                        if data is not None:
-                            _step_out.append(data)
-                        execution_logger.info(f'End {j} iteration')
-                    step_out = _step_out
-                    self.current_loop = None
-                elif step.isloop == 'aloop' and isinstance(step.get_map(step_out), (list, tuple)):
-                    tasks = []
-                    self.current_loop = {
-                        'max': len(step.get_map(step_out)),
-                        'active': 0,
-                        'finished': 0
-                    }
-                    for j, item in enumerate(step.get_map(step_out)):
-                        tasks.append(step.run(data=item, context=self.context, pipe=self.state, iteration=j, step_number=i, root_pipe=self))
-                    step_out = await asyncio.gather(*tasks)
-                    step_out = [item for item in step_out if item is not None]
-                    self.current_loop = None
-                elif step.isloop in ['loop', 'aloop'] and not isinstance(step.get_map(step_out), (list, tuple)):
-                    error = f'Bad input data: {step_out}'
-                    error_logger.error(error)
-                    raise Exception(error)
-            else:
-                OUT.print(f"Load out from exec {self.exec}")
-                step_out = loads((PIPE_DIR / str(self.exec) / f'step_{i+1}.json').read_text())["out"]
+                context['out'] = step_out
+                (self._dir / f'step_{i+1}.json').write_text(
+                    dumps(context, indent=INDENT)
+                )
+                OUT.print(f'Step {i} {step.name} Duration: {datetime.now() - local_start}')
+                logger.info(f'Step {i} {step.name} Duration: {datetime.now() - local_start}')
+                self.write_status(self.get_status(f'{step.name}[{i}]'))
 
-            context['out'] = step_out
-            (self._dir / f'step_{i+1}.json').write_text(
-                dumps(context, indent=INDENT)
-            )
-            OUT.print(f'Step {i} {step.name} Duration: {datetime.now() - local_start}')
-            logger.info(f'Step {i} {step.name} Duration: {datetime.now() - local_start}')
-            self.write_status(self.get_status(f'{step.name}[{i}]'))
-
-        self.time_run = False
-        OUT.print(f'Duration: {datetime.now() - self.global_start}')
-        OUT.print(f'End Execution {self.id}')
-        logger.info(f'Duration: {datetime.now() - self.global_start}')
-        logger.info(f'End Execution {self.id}')
-        self.write_status(self.get_status())
-        return step_out, self.context
+            OUT.print(f'Duration: {datetime.now() - self.global_start}')
+            OUT.print(f'End Execution {self.id}')
+            logger.info(f'Duration: {datetime.now() - self.global_start}')
+            logger.info(f'End Execution {self.id}')
+            self.time_run = False
+            return step_out, self.context
+        except Exception:
+            error_logger.error(f'{format_exc()}')
+            self.last_status = 'fatal error'
+            exit(1)
 
     async def run_with_timer(self, name="Undefined Process"):
         await asyncio.gather(
@@ -241,6 +266,7 @@ class Const:
 
     def __repr__(self):
         return 'const'
+
 
 
 if __name__ == '__main__':

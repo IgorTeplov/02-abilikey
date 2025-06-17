@@ -36,9 +36,11 @@ class Manager:
     def print_exec(self, id_, exec_):
         print(f"START: {exec_['start']}")
         print(f"ID: {id_}")
+        print(f"DURATION: {exec_['duration']}")
         finished = "YES" if exec_['finished'] else "NO"
-        print(f"NAME: {exec_['name']}, FINISHED: {finished}")
+        print(f"NAME: {exec_['name']}")
         print(f"STAGE: {exec_['last_step']}")
+        print(f"FINISHED: {finished}")
         print()
 
     def get_execs(self, show=False):

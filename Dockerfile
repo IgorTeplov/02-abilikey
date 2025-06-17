@@ -13,6 +13,7 @@ RUN apt-get update && \
     nano \
     rsyslog \
     && rm -rf /var/lib/apt/lists/*
+RUN sed -i '/imklog/s/^/#/' /etc/rsyslog.conf
 # Устанавливаем редактор по умолчанию
 ENV EDITOR=/bin/nano
 # Копируем CRM в рабочую директорию

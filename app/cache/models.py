@@ -17,3 +17,9 @@ class Reel(models.Model):
 class Sound(models.Model):
     airtabel_id = models.CharField(max_length=32, unique=True, db_index=True)
     rapid_id = models.CharField(max_length=32, unique=True, db_index=True)
+
+
+class TwitterUser(models.Model):
+    rapid_id = models.CharField(max_length=48, unique=True, db_index=True)
+    base = models.CharField(max_length=80, blank=True)
+    table = models.CharField(max_length=52, blank=True)

@@ -215,6 +215,7 @@ if __name__ == '__main__':
         if self.current_loop:
             OUT.print(f"Active {self.current_loop['active']}, {self.current_loop['finished']}/{self.current_loop['max']}")
         OUT.print(f"{datetime.now().strftime('%H:%M:%S')} - {elapsed}")
+        self.write_status(self.get_status())
 
     pipe.set_time_handler(time_handler)
     pipe.set_exec('28ac2cd8-5e3e-46dd-958b-1aa5ba670eeb', ['step_2', 'step_3'])
