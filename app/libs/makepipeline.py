@@ -180,7 +180,7 @@ class Pipeline:
                 logger.info(f'Start Step {i} {step.name}')
                 local_start = datetime.now()
                 context = {'in': step_out, 'out': None}
-                if self.exec is None or f"step_{i+1}" not in self.exec_steps:
+                if self.exec is None or step.name not in self.exec_steps:
                     if step.isloop is False:
                         step_out = await step.run(data=step_out, context=self.context, pipe=self.state, step_number=i)
                     elif step.isloop == 'loop' and isinstance(step.get_map(step_out), (list, tuple)):
@@ -217,10 +217,10 @@ class Pipeline:
                         raise Exception(error)
                 else:
                     OUT.print(f"Load out from exec {self.exec}")
-                    step_out = loads((PIPE_DIR / str(self.exec) / f'step_{i+1}.json').read_text())["out"]
+                    step_out = loads((PIPE_DIR / str(self.exec) / f'{step.name}.json').read_text())["out"]
 
                 context['out'] = step_out
-                (self._dir / f'step_{i+1}.json').write_text(
+                (self._dir / f'{step.name}.json').write_text(
                     dumps(context, indent=INDENT)
                 )
                 OUT.print(f'Step {i} {step.name} Duration: {datetime.now() - local_start}')

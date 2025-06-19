@@ -49,7 +49,8 @@ const = Const(
         {"BASE": "Twitter E-Mail Scraping Automation", "TABLE": "Scraped Followers"},
         {"BASE": "Twitter E-Mail Scraping Automation", "TABLE": "Twitter Profiles"}
     ],
-    DB_local=True
+    DB_local=True,
+    Ignore_Duplicates=False
 )
 
 L = Loader()
@@ -58,6 +59,7 @@ LA = LinkAnalizer('./linkanalizer.json', L, rapid_inst)
 if __name__ == '__main__':
 
     aget = sync_to_async(TwitterUser.objects.get, thread_sensitive=True)
+    acreate = sync_to_async(TwitterUser.objects.create, thread_sensitive=True)
 
     async def check_user(airtabel_id=None, rapid_id=None):
         if airtabel_id is not None:
@@ -75,13 +77,18 @@ if __name__ == '__main__':
         return False
 
     async def check_tuser(id_, const):
+        if const.Ignore_Duplicates:
+            return True
         if not const.DB_local:
             for db in const.DB_FOR_VALIDATION:
                 answer = await airtabel.search_by_formula(db['BASE'], db['TABLE'], '{User ID}='+f"'{id_}'")
                 if answer:
                     return False
         else:
-            if not await check_user(rapid_id=id_):
+            if await check_user(rapid_id=id_):
+                message = f'User {id_} exexist in local db!'
+                execution_logger.info(message)
+                OUT.print(message)
                 return False
         return True
 
@@ -120,8 +127,8 @@ if __name__ == '__main__':
             id_ = my_id.get('id_str', None)
             if id_:
                 if const.PROD:
-                    airtabel.update(const.BASE, const.ACCOUNTS, data['id'], {
-                        "Scraping status": "Followers scraped",
+                    await airtabel.update(const.BASE, const.ACCOUNTS, data['id'], {
+                        "Scraping Status": "Followers scraped",
                         "User ID": id_
                     })
                 return {
@@ -132,53 +139,25 @@ if __name__ == '__main__':
                 }
 
         if const.PROD:
-            airtabel.update(const.BASE, const.ACCOUNTS, data['id'], {
-                "Scraping status": "Error"
+            await airtabel.update(const.BASE, const.ACCOUNTS, data['id'], {
+                "Scraping Status": "Error"
             })
 
     async def _step4(data: dict, context, const, pipe, iteration, step_number) -> dict:
-        id_ = data['id']
-        if await check_tuser(id_, const):
-            return data
-        return None
-        # if not const.DB_local:
-        #     for db in const.DB_FOR_VALIDATION:
-        #         answer = await airtabel.search_by_formula(db['BASE'], db['TABLE'], '{User ID}='+f"'{id_}'")
-        #         if answer:
-        #             return None
-        # else:
-        #     if await check_user(rapid_id=id_):
-        #         return None
-        # return data
-
-    async def _step5(data: list, context, const, pipe, iteration, step_number) -> list:
-        ids = []
-        answer = []
-        for item in data:
-            if item['id'] not in ids:
-                ids.append(item['id'])
-                answer.append({
-                    'row_id': item['user_data']['id'],
-                    'user_data': item['user_data'],
-                    'ids': item['ids']
-                })
-        return answer
-
-    async def _step6(data: list, context, const, pipe, iteration, step_number) -> list:
-        answer = []
-        for items in data:
-            for id_ in items['ids']:
-                answer.append({'row_id': items['row_id'], 'id': id_})
-        return answer
-
-    async def _step7(data: list, context, const, pipe, iteration, step_number) -> list:
-        answer = []
-        ids = []
-        for item in data:
-            if item not in ids:
-                ids.append(item['id'])
-                answer.append(item)
-        return answer
+        objects = []
+        ids = set()
+        for user in data:
+            for follower in user['ids']:
+                if follower not in ids and await check_tuser(follower, const):
+                    ids.add(follower)
+                    await acreate(rapid_id=follower)
+                    OUT.print(f'User {follower} was added!')
+                    execution_logger.info(f'User {follower} was added!')
+                    objects.append({
+                        'id': follower,
+                        'row_id': user['user_data']['id']
+                    })
+        return objects
 
     async def _step8(data: dict, context, const, pipe, iteration, step_number) -> list:
         answer = (await rapid_v2.userbyrestid(data['id']))
@@ -188,6 +167,8 @@ if __name__ == '__main__':
         return answer
 
     async def _step9(data: dict, context, const, pipe, iteration, step_number) -> list:
+        if len(data['_urls']) == 0:
+            return None
         link_in_bio = data['legacy'].get('entities', {}).get('url', {}).get('urls', [])
         if link_in_bio:
             link_in_bio = link_in_bio[0].get('expanded_url')
@@ -229,16 +210,18 @@ if __name__ == '__main__':
 
     async def _step10(data: dict, context, const, pipe, iteration, step_number) -> dict:
         answer = []
+        send = False
         for url in LA.sort_links(data['_urls']):
-            of, _ = await LA.analize(url)
+            of, _, lsend = await LA.analize(url)
+            send |= lsend
             answer += of
         execution_logger.info(f'''{data["User ID"]}; {data["username"]}
 For this links:
 {data["_urls"]}
 we found this OF links:
 {answer}''')
-        # print(list(set(answer)))
         del data['_urls']
+        answer = list(set(list(map(lambda x: x.lower(), answer))))
         if len(answer) > 0:
             data['OnlyFans URL 1'] = answer[0]
         if len(answer) > 1:
@@ -247,7 +230,8 @@ we found this OF links:
         #     data['OnlyFans URL 3'] = answer[2]
         # if len(answer) > 3:
         #     data['OnlyFans URL 4'] = answer[3]
-        return data
+        if send:
+            return {"fields": data}
 
     async def _step11(data: list, context, const, pipe, iteration, step_number) -> list:
         _data = []
@@ -273,27 +257,19 @@ we found this OF links:
     step1 = Step(_step1, name='step_1', const=const)
     step2 = Step(_step2, name='step_2', const=const)
     step3 = Step(_step3, name='step_3', const=const, isloop='aloop', mapper='records')
-    step4 = Step(_step4, name='step_3', const=const, isloop='aloop')
-    step5 = Step(_step5, name='step_5', const=const)
-    step6 = Step(_step6, name='step_6', const=const)
-    step7 = Step(_step7, name='step_7', const=const)
+    step4 = Step(_step4, name='step_4', const=const)
     step8 = Step(_step8, name='step_8', const=const, isloop='aloop')
     step9 = Step(_step9, name='step_9', const=const, isloop='aloop')
     step10 = Step(_step10, name='step_10', const=const, isloop='aloop')
-    step11 = Step(_step11, name='step_11', const=const)
     step12 = Step(_step12, name='step_12', const=const)
     step13 = Step(_step13, name='step_13', const=const, isloop='aloop')
 
     pipe = step1 > step2
     pipe <= step3
     pipe <= step4
-    pipe <= step5
-    pipe <= step6
-    pipe <= step7
     pipe <= step8
     pipe <= step9
     pipe <= step10
-    pipe <= step11
     pipe <= step12
     pipe <= step13
 
@@ -310,6 +286,8 @@ we found this OF links:
         self.write_status(self.get_status())
 
     pipe.set_time_handler(time_handler)
+    execution_logger.info(f"Hit in cache: {LA.hit_in_cache}")
+    execution_logger.info(f"Processed: {LA.total_processed}; Find OF links: {LA.detected_links}")
 
     asyncio.run(pipe.run_with_timer(f"Twitter scrap"))
     print('Update state')

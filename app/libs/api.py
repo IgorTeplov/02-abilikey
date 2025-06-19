@@ -530,6 +530,15 @@ class LinkAnalizer:
         'wp-content', 'cache', 'minify', 'share', 'img', 'www.w3.org', 'discord.', 'facebook.', 'twitter.'
     ]
 
+    of_name = "\b[oO][nN][lL][yY][fF][aA][nN][sS]\b"
+
+    if (of_urls_from_html.length == 0) {
+  const of_word = $input.item.json.content.match(//g) || []
+  if (of_word.length > 0) {
+    $input.item.json.result.word_match = true
+  }
+}
+
     # a = параметр совпадения по поискам (5% попаданий из всей выборки)
     # b = минимальная выборка для принятия решения
     def __init__(self, state, loader, instagraapi, a=5, b=1000):
@@ -590,7 +599,6 @@ class LinkAnalizer:
                 '_patterns': [
                     'https?:\/\/(?:www\.)?onlyfans\.com\/[a-zA-Z0-9_\-\.]+',
                     'https?:\/\/(?:www\.)?[a-zA-Z0-9\-]+\.[a-zA-Z]+(?:\/[a-zA-Z0-9\/\.\?&=+*\-#$%\^\(\)\[\]\{\}\+-:;,!]*)?'
-                    # 'https?:\/\/(?:www\.)?[a-zA-Z0-9\-]+\.[a-zA-Z]+(?:\/[^\s]*)?'
                 ]
             }
 
@@ -627,16 +635,20 @@ class LinkAnalizer:
         return answer, of
 
     async def analize(self, link, depth=0):
+        send = False
         if depth == 0:
             self.total_processed += 1
         if link in self.cache:
             self.hit_in_cache += 1
             return self.cache[link]
+        answer, of = self.find(link)
+        if of:
+            return answer, True, send
         request_logger.info(f"scan this link: {link}")
         if depth == 3:
             if link not in self.cache:
-                self.cache[link] = ([], False)
-            return [], False
+                self.cache[link] = ([], False, send)
+            return [], False, send
         check, domain = self.check(link)
         if check:
             self.state[domain]['all'] += 1
@@ -646,47 +658,52 @@ class LinkAnalizer:
                     data = (await self.instagraapi.info(username))
                     url = data.get('answer', {}).get('data', {}).get('external_url', '')
                     if url != '':
-                        answer = await self.analize([url], depth + 1)
+                        answer, iisof, insend = await self.analize([url], depth + 1)
+                        send |= insend
                         if link not in self.cache:
                             self.cache[link] = answer
-                        if answer[1]:
+                        if iisof:
                             self.detected_links += 1
-                        return answer
+                        return answer, iisof, send
                     if link not in self.cache:
                         self.cache[link] = ([], False)
-                    return [], False
+                    return [], False, send
                 except Exception:
                     if link not in self.cache:
                         self.cache[link] = ([], False)
-                    return [], False
+                    return [], False, send
             data = await self.get_data(link)
+            if re.findall(self.of_name, data, flags=re.IGNORECASE):
+                send |= True
+
             if not data:
                 if link not in self.cache:
                     self.cache[link] = ([], False)
-                return [], False
+                return [], False, send
             answer, of = self.find(unquote(data))
             if of:
                 self.state[domain]['success'] += 1
                 if link not in self.cache:
                     self.detected_links += 1
                     self.cache[link] = (answer, True)
-                return answer, True
+                return answer, True, send
 
             for dlink in self.sort_links(answer):
                 request_logger.info(f"scan this link: {dlink}")
                 scheck, sdomain = self.check(dlink)
                 if scheck:
-                    answer, isof = await self.analize(dlink, depth + 1)
+                    answer, isof, nsend = await self.analize(dlink, depth + 1)
+                    send |= nsend
                     if depth == 0 and isof:
                         self.state[domain]['success'] += 1
                     if isof:
                         self.detected_links += 1
                         if link not in self.cache:
-                            self.cache[link] = (answer, True)
-                        return answer, True
+                            self.cache[link] = (answer, True, send)
+                        return answer, True, send
         if link not in self.cache:
-            self.cache[link] = ([], False)
-        return [], False
+            self.cache[link] = ([], False, send)
+        return [], False, send
 
     def update_state(self):
         for domain in self.state.keys():
