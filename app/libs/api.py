@@ -672,15 +672,15 @@ class LinkAnalizer:
 
             if not data:
                 if link not in self.cache:
-                    self.cache[link] = ([], False)
+                    self.cache[link] = ([], False, send)
                 return [], False, send
             answer, of = self.find(unquote(data))
             if of:
                 self.state[domain]['success'] += 1
                 if link not in self.cache:
                     self.detected_links += 1
-                    self.cache[link] = (answer, True)
-                return answer, True, send
+                    self.cache[link] = (answer, True, True)
+                return answer, True, True
 
             for dlink in self.sort_links(answer):
                 request_logger.info(f"scan this link: {dlink}")
@@ -693,11 +693,11 @@ class LinkAnalizer:
                     if isof:
                         self.detected_links += 1
                         if link not in self.cache:
-                            self.cache[link] = (answer, True, send)
-                        return answer, True, send
+                            self.cache[link] = (answer, True, True)
+                        return answer, True, True
         if link not in self.cache:
-            self.cache[link] = ([], False, send)
-        return [], False, send
+            self.cache[link] = ([], False, False)
+        return [], False, False
 
     def update_state(self):
         for domain in self.state.keys():
