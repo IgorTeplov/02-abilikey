@@ -532,13 +532,6 @@ class LinkAnalizer:
 
     of_name = "\b[oO][nN][lL][yY][fF][aA][nN][sS]\b"
 
-    if (of_urls_from_html.length == 0) {
-  const of_word = $input.item.json.content.match(//g) || []
-  if (of_word.length > 0) {
-    $input.item.json.result.word_match = true
-  }
-}
-
     # a = параметр совпадения по поискам (5% попаданий из всей выборки)
     # b = минимальная выборка для принятия решения
     def __init__(self, state, loader, instagraapi, a=5, b=1000):
@@ -666,15 +659,16 @@ class LinkAnalizer:
                             self.detected_links += 1
                         return answer, iisof, send
                     if link not in self.cache:
-                        self.cache[link] = ([], False)
+                        self.cache[link] = ([], False, send)
                     return [], False, send
                 except Exception:
                     if link not in self.cache:
-                        self.cache[link] = ([], False)
-                    return [], False, send
+                        self.cache[link] = ([], False, False)
+                    return [], False, False
             data = await self.get_data(link)
-            if re.findall(self.of_name, data, flags=re.IGNORECASE):
-                send |= True
+            if data:
+                if re.findall(self.of_name, data, flags=re.IGNORECASE):
+                    send |= True
 
             if not data:
                 if link not in self.cache:

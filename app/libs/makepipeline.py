@@ -117,7 +117,7 @@ class Pipeline:
         self.time_run = True
         self.current_loop = None
 
-        self.global_start = None
+        self.global_start = datetime.now()
         self.elapsed = None
         self.last_status = None
         signal.signal(signal.SIGINT, self.exit)
@@ -172,7 +172,6 @@ class Pipeline:
             self.name = name
             OUT.print(f'Start Execution: {name} with id: {self.id}')
             logger.info(f'Start Execution: {name} with id: {self.id}')
-            self.global_start = datetime.now()
             self.write_status(self.get_status())
             for i, step in enumerate(self.steps):
                 self.write_status(self.get_status(f'{step.name} [{i+1}]'))
